@@ -13,8 +13,7 @@ import {
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
-// Canvas 환경에서는 자동으로 연결되지만, 
-// Vercel 등 실제 배포 시에는 Firebase 콘솔에서 받은 본인의 키값을 아래에 붙여넣어야 합니다.
+// [중요] Firebase 콘솔에서 복사한 본인의 키값을 아래에 정확히 입력하세요.
 const firebaseConfig = typeof __firebase_config !== 'undefined' 
   ? JSON.parse(__firebase_config) 
   : {
@@ -30,18 +29,19 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// [MANDATORY RULE 1] appId 안전 처리 (경로 오류 방지)
-const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'ive-english-voca';
+// [RULE 1] appId 안전 처리 (경로 세그먼트 오류 방지)
+const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'ive-english-voca-prod';
 const appId = rawAppId.replace(/\//g, '_'); 
 
-// --- Logo Component (아이브 스티커 로고 사용) ---
+// --- Logo Component ---
 const Logo = ({ size = 90 }) => {
   const [imgError, setImgError] = useState(false);
+  
   return (
     <div className="flex flex-col items-center justify-center">
       {!imgError ? (
         <img 
-          src="아이브 스티커칼라.png" 
+          src="/아이브 스티커칼라.png" 
           alt="I'VE English Logo" 
           className="rounded-2xl shadow-sm"
           style={{ width: size, height: size, objectFit: 'contain' }}
@@ -69,7 +69,7 @@ const App = () => {
   const [notifications, setNotifications] = useState([]);
   const [allResults, setAllResults] = useState([]);
 
-  // --- Auth Setup (RULE 3: Auth FIRST) ---
+  // --- Auth (RULE 3: Auth FIRST) ---
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -78,38 +78,37 @@ const App = () => {
         } else {
           await signInAnonymously(auth);
         }
-      } catch (err) {
-        console.error("Firebase Auth Error:", err);
-      }
+      } catch (err) { console.error("Auth Fail:", err); }
     };
     initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u || null));
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u || null);
+    });
     return () => unsubscribe();
   }, []);
 
   // --- Data Sync (RULE 1 & 2) ---
   useEffect(() => {
     if (!user) return;
+    const publicPath = ['artifacts', appId, 'public', 'data'];
+    
+    const unsubWB = onSnapshot(collection(db, ...publicPath, 'wordbooks'), (snap) => {
+      setWordbooks(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => console.error("Wordbook Sync Error:", err));
 
-    const baseCol = (name) => collection(db, 'artifacts', appId, 'public', 'data', name);
+    const unsubST = onSnapshot(collection(db, ...publicPath, 'students'), (snap) => {
+      setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => console.error("Student Sync Error:", err));
 
-    const unsubWordbooks = onSnapshot(baseCol('wordbooks'), 
-      (snap) => setWordbooks(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      (err) => console.error("Wordbook Sync Error:", err));
+    const unsubNT = onSnapshot(collection(db, ...publicPath, 'notifications'), (snap) => {
+      setNotifications(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => console.error("Noti Sync Error:", err));
 
-    const unsubStudents = onSnapshot(baseCol('students'), 
-      (snap) => setStudents(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      (err) => console.error("Student Sync Error:", err));
+    const unsubRS = onSnapshot(collection(db, ...publicPath, 'test_results'), (snap) => {
+      setAllResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => console.error("Result Sync Error:", err));
 
-    const unsubNotis = onSnapshot(baseCol('notifications'), 
-      (snap) => setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      (err) => console.error("Noti Sync Error:", err));
-
-    const unsubResults = onSnapshot(baseCol('test_results'), 
-      (snap) => setAllResults(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      (err) => console.error("Result Sync Error:", err));
-
-    return () => { unsubWordbooks(); unsubStudents(); unsubNotis(); unsubResults(); };
+    return () => { unsubWB(); unsubST(); unsubNT(); unsubRS(); };
   }, [user]);
 
   const handleStudentLogin = () => {
@@ -148,16 +147,14 @@ const App = () => {
           <h1 className="text-4xl font-black text-slate-800 mb-2 tracking-tighter uppercase">I'VE English</h1>
           <p className="text-orange-500 font-bold mb-12">아이브영어 단어장</p>
           <div className="space-y-6">
-            <div>
-              <input 
-                type="text" 
-                placeholder="학생 이름을 입력하세요"
-                className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-orange-400 font-bold text-center text-xl transition-all"
-                value={studentName}
-                onChange={(e) => setStudentName(e.target.value)}
-              />
-              {loginError && <p className="text-red-500 text-xs mt-2 font-bold">{String(loginError)}</p>}
-            </div>
+            <input 
+              type="text" 
+              placeholder="학생 이름을 입력하세요"
+              className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-orange-400 font-bold text-center text-xl transition-all"
+              value={studentName}
+              onChange={(e) => setStudentName(e.target.value)}
+            />
+            {loginError && <p className="text-red-500 text-xs mt-2 font-bold">{String(loginError)}</p>}
             <button 
               onClick={handleStudentLogin}
               className="w-full py-5 bg-orange-500 text-white rounded-[2rem] font-black text-xl hover:bg-orange-600 transition shadow-xl transform active:scale-95"
@@ -185,12 +182,12 @@ const App = () => {
       <header className="bg-white border-b-2 border-orange-100 px-6 py-4 flex justify-between items-center sticky top-0 z-40">
         <div className="flex items-center gap-3 font-black text-2xl text-slate-800">
           <Logo size={40} />
-          <span className="tracking-tighter uppercase">I'VE English</span>
+          <span>I'VE English</span>
           <span className="text-[10px] bg-orange-500 text-white px-3 py-1 rounded-full uppercase tracking-widest ml-2 font-bold">
             {role === 'admin' ? 'ADMIN' : String(studentName)}
           </span>
         </div>
-        <button onClick={() => {setCurrentView('landing'); setRole(null); setAdminInputPassword("");}} className="text-slate-400 font-black hover:text-red-500 transition text-sm flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-full">
+        <button onClick={() => {setCurrentView('landing'); setRole(null);}} className="text-slate-400 font-black hover:text-red-500 transition text-sm flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-full">
           <LogOut size={16}/> 로그아웃
         </button>
       </header>
@@ -218,7 +215,6 @@ const App = () => {
   );
 };
 
-// --- Admin Panel ---
 const AdminPanel = ({ students, wordbooks, results, onAddStudent, onDeleteStudent, onAddWordbook, onDeleteWordbook, onSendNoti }) => {
   const [tab, setTab] = useState('students');
   const [name, setName] = useState("");
@@ -241,7 +237,7 @@ const AdminPanel = ({ students, wordbooks, results, onAddStudent, onDeleteStuden
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex bg-white rounded-2xl p-2 shadow-sm border border-slate-200 w-fit overflow-x-auto">
         {['students', 'wb_list', 'wb_add', 'progress', 'noti'].map(t => (
-          <button key={t} onClick={() => setTab(t)} className={`px-6 py-3 rounded-xl text-sm font-black transition ${tab === t ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50'}`}>
+          <button key={t} onClick={() => setTab(t)} className={`px-6 py-3 rounded-xl text-sm font-black transition ${tab === t ? 'bg-orange-500 text-white shadow-lg shadow-orange-100' : 'text-slate-500 hover:bg-slate-50'}`}>
             {t === 'students' ? '학생 관리' : t === 'wb_list' ? '단어장 목록' : t === 'wb_add' ? '추가' : t === 'progress' ? '진도' : '공지'}
           </button>
         ))}
@@ -314,7 +310,6 @@ const AdminPanel = ({ students, wordbooks, results, onAddStudent, onDeleteStuden
   );
 };
 
-// --- Student Panel ---
 const StudentPanel = ({ wordbooks, notifications, studentName, results, onSaveResult, onAddWordbook, speak }) => {
   const [view, setView] = useState('dashboard');
   const [selectedWB, setSelectedWB] = useState(null);
